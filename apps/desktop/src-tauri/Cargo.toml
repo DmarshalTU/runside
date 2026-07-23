@@ -1,6 +1,6 @@
 [package]
 name = "runside"
-version = "0.6.1"
+version = "0.7.0"
 description = "Runside — local-first GitHub Actions + Allure report browser"
 authors = ["Runside"]
 edition = "2021"
