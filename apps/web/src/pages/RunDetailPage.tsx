@@ -135,6 +135,21 @@ export function RunDetailPage() {
     }
   }
 
+  async function onOpenBrowser(name: string) {
+    if (!id) return;
+    setBusy(name);
+    setMessage(null);
+    setError(null);
+    try {
+      await api.openArtifact(id, name);
+      setMessage("Opened report in your browser.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!id) {
     return <div className="error-box">Missing run id</div>;
   }
@@ -278,11 +293,14 @@ export function RunDetailPage() {
                     </div>
                   </div>
                   <div className="row">
-                    {a.cached && a.reportUrl && (
-                      <a className="btn btn-ghost" href={a.reportUrl} target="_blank" rel="noreferrer">
-                        New tab
-                      </a>
-                    )}
+                    <button
+                      className="btn btn-ghost"
+                      type="button"
+                      disabled={Boolean(busy) || a.expired}
+                      onClick={() => void onOpenBrowser(a.name)}
+                    >
+                      {busy === a.name ? "Opening…" : "Open in browser"}
+                    </button>
                     <button
                       className="btn"
                       type="button"

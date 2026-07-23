@@ -12,8 +12,7 @@ Runside is a **local-first** tool. It is designed to run on a developer machine 
 
 Allure HTML/JS from GitHub Actions is **untrusted content**.
 
-- Reports are shown in a **sandboxed iframe** (no `allow-same-origin`) so report scripts cannot call parent page APIs as a first-party app.
-- `/reports` responses send a restrictive **Content-Security-Policy**.
+- Reports are shown in a **sandboxed iframe** with `allow-scripts` + `allow-same-origin` (Allure must fetch its own `data/*.json`; without same-origin the viewer is a blank page, especially in WebView2). Report scripts still cannot reach parent DOM; `/reports` responses also send a restrictive **Content-Security-Policy** (`connect-src 'self'`).
 - Prefer **Open report** in Hub or **New tab**; do not paste report HTML into privileged contexts.
 
 ## Cache paths

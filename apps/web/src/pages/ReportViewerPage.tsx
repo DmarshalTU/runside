@@ -34,6 +34,16 @@ export function ReportViewerPage() {
     void prepare();
   }, [prepare]);
 
+  async function openInBrowser() {
+    if (!id || !artifactName) return;
+    setError(null);
+    try {
+      await api.openArtifact(id, artifactName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   if (!id || !artifactName) {
     return <div className="error-box">Missing run or artifact</div>;
   }
@@ -53,9 +63,9 @@ export function ReportViewerPage() {
         </div>
         <div className="row">
           {reportUrl && (
-            <a className="btn" href={reportUrl} target="_blank" rel="noreferrer">
-              Open in new tab
-            </a>
+            <button className="btn" type="button" onClick={() => void openInBrowser()}>
+              Open in browser
+            </button>
           )}
           <button className="btn" type="button" onClick={() => void prepare()} disabled={loading}>
             {loading ? "Loading…" : "Reload"}
@@ -80,8 +90,14 @@ export function ReportViewerPage() {
         <iframe
           className="report-frame"
           title={`Allure · ${artifactName}`}
-          src={reportUrl}
-          sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+          src={
+            reportUrl.startsWith("http")
+              ? reportUrl
+              : `${window.location.origin}${reportUrl}`
+          }
+          // allow-same-origin is required: Allure fetches data/*.json from the report origin.
+          // Without it (esp. in WebView2) the viewer is a blank white page.
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
           referrerPolicy="no-referrer"
         />
       )}

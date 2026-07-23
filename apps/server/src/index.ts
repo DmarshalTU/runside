@@ -39,7 +39,6 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DESKTOP = process.env.RUNSIDE_DESKTOP === "1";
 const HOST = "127.0.0.1";
 /** Prefer RUNSIDE_PORT (desktop), then PORT, default 8787. Use 0 for an ephemeral port. */
 const PORT = Number(process.env.RUNSIDE_PORT ?? process.env.PORT ?? 8787);
@@ -241,9 +240,8 @@ app.post("/api/runs/:id/artifacts/:name/open", async (c) => {
 
     const listenPort = Number(process.env.RUNSIDE_LISTEN_PORT ?? PORT);
     const absolute = `http://${HOST}:${listenPort}${urlPath}`;
-    if (!DESKTOP) {
-      await open(absolute);
-    }
+    // Always open in the OS browser — Tauri WebView has no real "new tab".
+    await open(absolute);
     return c.json({ reportUrl: urlPath, opened: absolute });
   } catch (err) {
     const { status, body } = errorMessage(err);
@@ -281,7 +279,16 @@ app.post("/api/workflows/dispatch", async (c) => {
 app.use("/reports/*", async (c, next) => {
   c.header(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*; frame-ancestors 'self';",
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "connect-src 'self'",
+      "worker-src 'self' blob:",
+      "frame-ancestors 'self'",
+    ].join("; "),
   );
   c.header("X-Content-Type-Options", "nosniff");
   const cache = cacheDir();
