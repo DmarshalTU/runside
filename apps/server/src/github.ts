@@ -533,14 +533,14 @@ export async function dispatchWorkflow(
     repo,
   ];
 
-  for (const [key, value] of Object.entries(inputs)) {
-    if (value !== undefined && value !== "") {
-      // Reject shell metacharacters in values even though we spawn without shell
-      if (/[\r\n\0]/.test(value) || /[\r\n\0]/.test(key)) {
-        throw new Error("Invalid workflow input");
-      }
-      args.push("-f", `${key}=${value}`);
+  for (const [key, raw] of Object.entries(inputs)) {
+    const value = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+    if (value === "") continue;
+    // Reject shell metacharacters in values even though we spawn without shell
+    if (/[\r\n\0]/.test(value) || /[\r\n\0]/.test(key)) {
+      throw new Error("Invalid workflow input");
     }
+    args.push("-f", `${key}=${value}`);
   }
 
   await runGhOk(args);
