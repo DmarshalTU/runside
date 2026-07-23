@@ -1,7 +1,7 @@
 {
   "name": "@testops-hub/desktop",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "Runside desktop shell (Tauri 2)",
   "scripts": {

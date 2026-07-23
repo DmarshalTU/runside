@@ -1,5 +1,6 @@
 import { NavLink, Outlet, Route, Routes, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
+import { ApiStatusBanner } from "./ApiStatusBanner";
 import { RunsPage } from "./pages/RunsPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { TriggerPage } from "./pages/TriggerPage";
@@ -11,6 +12,7 @@ import { ComparePage } from "./pages/ComparePage";
 function HubLayout() {
   return (
     <div className="app-shell">
+      <ApiStatusBanner />
       <header className="topbar">
         <div className="brand">
           <h1>Runside</h1>
@@ -57,7 +59,15 @@ export function App() {
     <>
       <DeepLinkListener />
       <Routes>
-        <Route path="/runs/:id/report/:name" element={<ReportViewerPage />} />
+        <Route
+          path="/runs/:id/report/:name"
+          element={
+            <>
+              <ApiStatusBanner />
+              <ReportViewerPage />
+            </>
+          }
+        />
         <Route element={<HubLayout />}>
           <Route path="/" element={<RunsPage />} />
           <Route path="/runs/:id" element={<RunDetailPage />} />

@@ -106,7 +106,7 @@ export function RunsPage() {
   });
 
   const watching = hasActiveRuns(runs);
-  const needsSetup = settings != null && (!settings.owner || !settings.repo);
+  const needsSetup = Boolean(settings && (!settings.owner || !settings.repo));
 
   function toggleSelect(id: number) {
     setSelected((prev) => {
@@ -155,9 +155,11 @@ export function RunsPage() {
         <div>
           <h2 style={{ marginBottom: "0.35rem" }}>Runs</h2>
           <p className="lead">
-            {needsSetup
-              ? "Configure owner/repo in Settings to list workflow runs."
-              : `${settings!.owner}/${settings!.repo} · ${settings!.workflowName || settings!.workflowFile || "all workflows"}${watching ? " · auto-refreshing" : ""}`}
+            {!settings
+              ? "Loading…"
+              : needsSetup
+                ? "Configure owner/repo in Settings to list workflow runs."
+                : `${settings.owner}/${settings.repo} · ${settings.workflowName || settings.workflowFile || "all workflows"}${watching ? " · auto-refreshing" : ""}`}
           </p>
         </div>
         <div className="row">

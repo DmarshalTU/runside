@@ -1,7 +1,15 @@
 #[cfg(not(debug_assertions))]
+use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(not(debug_assertions))]
+use std::net::SocketAddr;
+#[cfg(not(debug_assertions))]
 use std::path::PathBuf;
 use std::process::Child;
+#[cfg(not(debug_assertions))]
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
+#[cfg(not(debug_assertions))]
+use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -9,13 +17,10 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 
-#[cfg(not(debug_assertions))]
-use std::io::{BufRead, BufReader};
-#[cfg(not(debug_assertions))]
-use std::process::{Command, Stdio};
-
 struct SidecarState(Mutex<Option<Child>>);
-struct AppBaseUrl(Mutex<Option<String>>);
+
+/// Fixed local port for the packaged desktop API (UI loads from Tauri assets).
+const DESKTOP_PORT: u16 = 8787;
 
 #[cfg(not(debug_assertions))]
 fn exe_dir() -> Result<PathBuf, String> {
@@ -35,22 +40,78 @@ fn deep_link_to_path(url: &str) -> Option<String> {
     Some(format!("/{path}"))
 }
 
+/// HashRouter deep link: set location.hash without leaving Tauri asset origin.
 fn navigate_app(app: &AppHandle, path: &str) {
+    let hash = if path == "/" {
+        "#/".to_string()
+    } else {
+        format!("#{path}")
+    };
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
-        if let Ok(guard) = app.state::<AppBaseUrl>().0.lock() {
-            if let Some(base) = guard.as_ref() {
-                let url = format!("{}{}", base.trim_end_matches('/'), path);
-                if let Ok(parsed) = url.parse() {
-                    let _ = window.navigate(parsed);
-                    return;
-                }
-            }
-        }
         let _ = window.eval(&format!(
-            "window.location.pathname = {}",
-            serde_json::to_string(path).unwrap_or_else(|_| "\"/\"".into())
+            "window.location.hash = {}",
+            serde_json::to_string(&hash).unwrap_or_else(|_| "\"#/\"".into())
+        ));
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn health_ok() -> bool {
+    let addr = SocketAddr::from(([127, 0, 0, 1], DESKTOP_PORT));
+    let Ok(mut stream) =
+        std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(300))
+    else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+    if stream
+        .write_all(b"GET /api/health HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut buf = Vec::new();
+    let _ = stream.read_to_end(&mut buf);
+    let body = String::from_utf8_lossy(&buf);
+    body.contains("200") && body.contains("runside")
+}
+
+#[cfg(not(debug_assertions))]
+fn wait_for_health(attempts: u32) -> bool {
+    for _ in 0..attempts {
+        if health_ok() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    false
+}
+
+#[cfg(not(debug_assertions))]
+fn show_server_error(app: &AppHandle, message: &str) {
+    if let Some(window) = app.get_webview_window("main") {
+        let safe = message
+            .replace('\\', "\\\\")
+            .replace('`', "'")
+            .replace('"', "'")
+            .replace('\n', "<br>");
+        let _ = window.eval(&format!(
+            r#"
+            (function() {{
+              var el = document.getElementById('runside-server-error');
+              if (!el) {{
+                el = document.createElement('div');
+                el.id = 'runside-server-error';
+                el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0f1412;color:#e8f0ea;font-family:system-ui;padding:2rem;';
+                document.documentElement.appendChild(el);
+              }}
+              el.innerHTML = '<h1 style="margin-top:0">Local server not reachable</h1><p>{safe}</p><p style="opacity:.7">Reports and API calls need http://127.0.0.1:{port}. Close other Runside/npm processes using that port, then relaunch.</p>';
+            }})();
+            "#,
+            port = DESKTOP_PORT
         ));
     }
 }
@@ -113,6 +174,12 @@ fn sidecar_binary() -> Result<PathBuf, String> {
 
 #[cfg(not(debug_assertions))]
 fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
+    // Reuse an already-healthy local API (e.g. npm run start) instead of failing on bind.
+    if health_ok() {
+        eprintln!("Runside API already healthy on port {DESKTOP_PORT}; skipping sidecar spawn");
+        return Ok(());
+    }
+
     let server_js = resource_file(app, "server.cjs").ok_or_else(|| {
         format!(
             "server.cjs not found (exe dir: {})",
@@ -127,7 +194,8 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
     command
         .arg(&server_js)
         .env("RUNSIDE_DESKTOP", "1")
-        .env("RUNSIDE_PORT", "0")
+        .env("RUNSIDE_PORT", DESKTOP_PORT.to_string())
+        .env("PORT", DESKTOP_PORT.to_string())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -162,24 +230,11 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
         *guard = Some(child);
     }
 
-    let handle = app.clone();
     if let Some(stdout) = stdout {
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().flatten() {
-                let trimmed = line.trim();
-                eprintln!("[runside-server] {trimmed}");
-                if let Some(url) = trimmed.strip_prefix("RUNSIDE_READY ") {
-                    let url = url.trim().to_string();
-                    if let Ok(mut guard) = handle.state::<AppBaseUrl>().0.lock() {
-                        *guard = Some(url.clone());
-                    }
-                    if let Some(window) = handle.get_webview_window("main") {
-                        if let Ok(parsed) = url.parse() {
-                            let _ = window.navigate(parsed);
-                        }
-                    }
-                }
+                eprintln!("[runside-server] {}", line.trim());
             }
         });
     }
@@ -192,6 +247,18 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
             }
         });
     }
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        if !wait_for_health(40) {
+            show_server_error(
+                &handle,
+                &format!(
+                    "Timed out waiting for the local API on port {DESKTOP_PORT}. Sidecar may have failed to bind (port in use) or crashed."
+                ),
+            );
+        }
+    });
 
     Ok(())
 }
@@ -212,10 +279,10 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .expect("app icon required for tray");
+    let Some(icon) = app.default_window_icon().cloned() else {
+        eprintln!("No window icon for tray; skipping tray");
+        return Ok(());
+    };
 
     let _tray = TrayIconBuilder::new()
         .icon(icon)
@@ -259,11 +326,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(SidecarState(Mutex::new(None)))
-        .manage(AppBaseUrl(Mutex::new(Some(
-            "http://127.0.0.1:8787".into(),
-        ))))
         .setup(|app| {
-            setup_tray(&app.handle())?;
+            if let Err(err) = setup_tray(&app.handle()) {
+                eprintln!("Tray setup failed (continuing): {err}");
+            }
 
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -284,12 +350,7 @@ pub fn run() {
             {
                 if let Err(err) = spawn_sidecar(&app.handle()) {
                     eprintln!("Failed to start Runside server: {err}");
-                    if let Some(window) = app.get_webview_window("main") {
-                        let safe = err.replace('`', "'").replace('\\', "\\\\").replace('"', "'");
-                        let _ = window.eval(&format!(
-                            "document.body.innerHTML='<p style=\"font-family:system-ui;padding:2rem\">Failed to start local server:<br>{safe}</p>'"
-                        ));
-                    }
+                    show_server_error(&app.handle(), &err);
                 }
             }
 

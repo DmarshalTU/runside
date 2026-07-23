@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { dirname, join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import open from "open";
 import {
@@ -59,7 +59,9 @@ app.use(
         origin === "http://localhost:5173" ||
         origin === "tauri://localhost" ||
         origin === "http://tauri.localhost" ||
-        /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
+        origin === "https://tauri.localhost" ||
+        /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin) ||
+        /^https:\/\/([a-z0-9-]+\.)*localhost$/i.test(origin)
       ) {
         return origin;
       }
@@ -355,7 +357,8 @@ app.use("/reports/*", async (c, next) => {
       "font-src 'self' data:",
       "connect-src 'self'",
       "worker-src 'self' blob:",
-      "frame-ancestors 'self'",
+      // Allow embed from Tauri shell and local browser tabs.
+      "frame-ancestors 'self' http://tauri.localhost https://tauri.localhost tauri://localhost http://127.0.0.1:8787 http://localhost:8787 http://127.0.0.1:5173 http://localhost:5173",
     ].join("; "),
   );
   c.header("X-Content-Type-Options", "nosniff");
@@ -415,8 +418,8 @@ void (async () => {
       console.log(`Runside API listening on ${url}`);
       console.log(`Cache: ${cacheDir()}`);
       if (staticRoot) console.log(`UI: ${staticRoot}`);
-      // Machine-readable ready line for the Tauri shell
-      console.log(`RUNSIDE_READY ${url}`);
+      // Machine-readable ready line for the Tauri shell (writeSync so piped stdout is not block-buffered)
+      writeSync(1, `RUNSIDE_READY ${url}\n`);
     },
   );
 })();

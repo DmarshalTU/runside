@@ -28,7 +28,7 @@ export function notifyRunFinished(opts: {
   });
   n.onclick = () => {
     window.focus();
-    window.location.href = `/runs/${opts.runId}`;
+    window.location.hash = `#/runs/${opts.runId}`;
     n.close();
   };
 }

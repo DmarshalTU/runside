@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { hubUrl } from "../hub";
 
 export function ReportViewerPage() {
   const { id, name } = useParams<{ id: string; name: string }>();
@@ -91,9 +92,7 @@ export function ReportViewerPage() {
           className="report-frame"
           title={`Allure · ${artifactName}`}
           src={
-            reportUrl.startsWith("http")
-              ? reportUrl
-              : `${window.location.origin}${reportUrl}`
+            reportUrl.startsWith("http") ? reportUrl : hubUrl(reportUrl)
           }
           // allow-same-origin is required: Allure fetches data/*.json from the report origin.
           // Without it (esp. in WebView2) the viewer is a blank white page.

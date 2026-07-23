@@ -13,9 +13,10 @@ import type {
   WorkflowJob,
   WorkflowRun,
 } from "@testops-hub/shared";
+import { hubUrl } from "./hub";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(hubUrl(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
