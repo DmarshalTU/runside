@@ -461,6 +461,48 @@ table.runs tr:hover td {
   margin: 0;
 }
 
+.compare-chips .btn {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.65rem;
+}
+
+.badge.compare-bucket-regressed,
+.badge.failed,
+.badge.broken {
+  background: color-mix(in srgb, var(--danger) 22%, var(--bg));
+  color: #f0c4c4;
+}
+
+.badge.compare-bucket-fixed,
+.badge.passed {
+  background: color-mix(in srgb, var(--ok) 22%, var(--bg));
+  color: #c5efd6;
+}
+
+.badge.compare-bucket-stillFailing {
+  background: color-mix(in srgb, var(--danger) 18%, var(--bg));
+  color: #f0c4c4;
+}
+
+.badge.compare-bucket-new {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+  color: var(--fg);
+}
+
+.badge.compare-bucket-removed {
+  background: color-mix(in srgb, var(--muted) 25%, var(--bg));
+  color: var(--muted);
+}
+
+.badge.compare-bucket-unchanged {
+  background: var(--bg-soft);
+  color: var(--muted);
+}
+
+table.compare-tests td {
+  vertical-align: top;
+}
+
 .step-list {
   margin: 0 0 0.85rem;
   padding: 0.75rem 0.75rem 0.75rem 1.5rem;

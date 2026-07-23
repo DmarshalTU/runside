@@ -86,7 +86,7 @@ npm run desktop:build
 
 ## What you can do
 
-- **Runs** — list/filter runs; Re-run / Cancel; select two runs → **Compare**
+- **Runs** — list/filter runs; Re-run / Cancel; select two runs → **Compare** (metadata + Allure test diff: regressed / fixed / new / removed)
 - **Run detail** — jobs, CI logs, artifacts by kind; Pin cache; open in app or browser
 - **Library** — offline cached reports
 - **Trigger** — dynamic `workflow_dispatch` form

@@ -174,3 +174,51 @@ export type CachedReport = {
   sizeBytes: number;
   mtimeMs: number;
 };
+
+export type AllureTestStatus =
+  | "passed"
+  | "failed"
+  | "broken"
+  | "skipped"
+  | "unknown";
+
+export type CompareBucket =
+  | "regressed"
+  | "fixed"
+  | "stillFailing"
+  | "new"
+  | "removed"
+  | "unchanged";
+
+export type CompareTestSide = {
+  status: AllureTestStatus;
+  name: string;
+  fullName?: string;
+  durationMs?: number;
+  flaky?: boolean;
+};
+
+export type CompareTestRow = {
+  key: string;
+  bucket: CompareBucket;
+  name: string;
+  fullName?: string;
+  a?: CompareTestSide;
+  b?: CompareTestSide;
+};
+
+export type CompareStats = {
+  total: number;
+  passed: number;
+  failed: number;
+  broken: number;
+  skipped: number;
+  unknown: number;
+};
+
+export type CompareResult = {
+  a: { runId: string; artifactName: string; stats: CompareStats };
+  b: { runId: string; artifactName: string; stats: CompareStats };
+  counts: Record<CompareBucket, number>;
+  rows: CompareTestRow[];
+};

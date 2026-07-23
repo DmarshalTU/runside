@@ -12,6 +12,7 @@ import {
   type TriggerInputValues,
 } from "@testops-hub/shared";
 import { GhError } from "./gh.js";
+import { compareAllureReports, resolveReportRoot } from "./allureCompare.js";
 import {
   cancelWorkflow,
   detectRepoFromGh,
@@ -39,6 +40,7 @@ import {
   setPinned,
   assertSafeRunId,
   assertSafeArtifactName,
+  artifactKind,
 } from "./paths.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -313,6 +315,68 @@ app.post("/api/runs/:id/artifacts/:name/open", async (c) => {
     // Always open in the OS browser — Tauri WebView has no real "new tab".
     await open(absolute);
     return c.json({ reportUrl: urlPath, opened: absolute });
+  } catch (err) {
+    const { status, body } = errorMessage(err);
+    return c.json(body, status);
+  }
+});
+
+async function ensureAllureCached(
+  settings: Awaited<ReturnType<typeof loadSettings>>,
+  runId: string,
+  preferredName?: string | null,
+): Promise<string> {
+  const artifacts = await listArtifacts(settings, runId);
+  const allureArts = artifacts.filter((a) => a.kind === "allure" && !a.expired);
+  if (allureArts.length === 0) {
+    throw new Error(`Run #${runId} has no Allure artifacts`);
+  }
+
+  let name = preferredName?.trim()
+    ? assertSafeArtifactName(preferredName)
+    : undefined;
+  if (name) {
+    const match = allureArts.find((a) => a.name === name);
+    if (!match) {
+      throw new Error(`Allure artifact "${name}" not found on run #${runId}`);
+    }
+  } else {
+    name =
+      allureArts.find((a) => a.cached)?.name ??
+      allureArts[0]!.name;
+  }
+
+  if (!isArtifactCached(runId, name) || !resolveReportRoot(runId, name)) {
+    if (artifactKind(name) !== "allure") {
+      throw new Error(`Artifact "${name}" is not an Allure report`);
+    }
+    await downloadArtifact(settings, runId, name);
+  }
+  return name;
+}
+
+app.get("/api/compare", async (c) => {
+  try {
+    const a = assertSafeRunId(c.req.query("a") ?? "");
+    const b = assertSafeRunId(c.req.query("b") ?? "");
+    const settings = await loadSettings();
+    const artifactA = await ensureAllureCached(
+      settings,
+      a,
+      c.req.query("artifactA"),
+    );
+    const artifactB = await ensureAllureCached(
+      settings,
+      b,
+      c.req.query("artifactB"),
+    );
+    const result = await compareAllureReports({
+      runA: a,
+      runB: b,
+      artifactA,
+      artifactB,
+    });
+    return c.json(result);
   } catch (err) {
     const { status, body } = errorMessage(err);
     return c.json(body, status);

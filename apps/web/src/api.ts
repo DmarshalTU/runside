@@ -1,6 +1,7 @@
 import type {
   ActionResult,
   CachedReport,
+  CompareResult,
   DispatchResult,
   DownloadResult,
   GhRepoSummary,
@@ -86,6 +87,16 @@ export const api = {
       `/api/runs/${runId}/artifacts/${encodeURIComponent(name)}/open`,
       { method: "POST" },
     ),
+  compareRuns: (
+    a: string | number,
+    b: string | number,
+    opts?: { artifactA?: string; artifactB?: string },
+  ) => {
+    const q = new URLSearchParams({ a: String(a), b: String(b) });
+    if (opts?.artifactA) q.set("artifactA", opts.artifactA);
+    if (opts?.artifactB) q.set("artifactB", opts.artifactB);
+    return request<CompareResult>(`/api/compare?${q}`);
+  },
   workflowInputs: () =>
     request<WorkflowDispatchSchema>("/api/workflows/inputs"),
   dispatch: (inputs: TriggerInputValues) =>
