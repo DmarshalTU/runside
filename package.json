@@ -13,7 +13,7 @@
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w @testops-hub/server\" \"npm run dev -w @testops-hub/web\"",
     "build": "npm run build -w @testops-hub/shared && npm run build -w @testops-hub/server && npm run build -w @testops-hub/web",
     "start": "npm run start -w @testops-hub/server",
-    "typecheck": "npm run build -w @testops-hub/shared && npm run typecheck -w @testops-hub/shared && npm run typecheck -w @testops-hub/server && npm run typecheck -w @testops-hub/web"
+    "typecheck": "npm run typecheck -w @testops-hub/shared && npm run typecheck -w @testops-hub/server && npm run typecheck -w @testops-hub/web"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

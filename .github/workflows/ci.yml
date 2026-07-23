@@ -26,9 +26,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build shared types
-        run: npm run build -w @testops-hub/shared
-
       - name: Typecheck
         run: npm run typecheck
 
