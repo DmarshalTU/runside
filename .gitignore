@@ -10,6 +10,13 @@ dist/
 .turbo/
 coverage/
 
+# Desktop / Tauri build artifacts
+apps/desktop/sidecar/
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/resources/
+apps/desktop/src-tauri/target/
+apps/desktop/dist/
+
 # Cursor / AI tooling (local only — do not commit)
 .cursor/
 .cursorrules

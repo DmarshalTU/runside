@@ -7,6 +7,8 @@ export type HubSettings = {
   workflowName: string;
   /** Prefix for Allure report artifacts, e.g. allure-report- */
   artifactPrefix: string;
+  /** Recently selected repos as owner/name (most recent first) */
+  recentRepos: string[];
 };
 
 export const DEFAULT_SETTINGS: HubSettings = {
@@ -15,6 +17,7 @@ export const DEFAULT_SETTINGS: HubSettings = {
   workflowFile: "",
   workflowName: "",
   artifactPrefix: "allure-report-",
+  recentRepos: [],
 };
 
 export type GhStatus = {
@@ -22,6 +25,12 @@ export type GhStatus = {
   authenticated: boolean;
   message: string;
   loggedInAs?: string;
+};
+
+export type GhRepoSummary = {
+  nameWithOwner: string;
+  description: string;
+  isPrivate: boolean;
 };
 
 /** Values passed to `gh workflow run -f key=value` */

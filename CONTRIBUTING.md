@@ -25,7 +25,11 @@ npm run build
 | --- | --- |
 | `apps/server` | Hono API, `gh` adapter, report cache |
 | `apps/web` | Vite + React UI |
+| `apps/desktop` | Tauri 2 shell + Node sidecar packaging |
 | `packages/shared` | Shared TypeScript types |
+| `scripts/` | Server bundle + sidecar / desktop build helpers |
+
+Desktop installers: `npm run desktop:build` (needs Rust). CI builds Win/macOS/Linux via `.github/workflows/release-desktop.yml`.
 
 ## Guidelines
 

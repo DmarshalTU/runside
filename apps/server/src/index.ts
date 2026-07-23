@@ -20,6 +20,7 @@ import {
   getRun,
   getRunLogs,
   getWorkflowDispatchSchema,
+  listAccessibleRepos,
   listArtifacts,
   listJobs,
   listRuns,
@@ -38,20 +39,29 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const PORT = Number(process.env.PORT ?? 8787);
+const DESKTOP = process.env.RUNSIDE_DESKTOP === "1";
 const HOST = "127.0.0.1";
+/** Prefer RUNSIDE_PORT (desktop), then PORT, default 8787. Use 0 for an ephemeral port. */
+const PORT = Number(process.env.RUNSIDE_PORT ?? process.env.PORT ?? 8787);
 
 const app = new Hono();
 
 app.use(
   "*",
   cors({
-    origin: [
-      "http://127.0.0.1:5173",
-      "http://localhost:5173",
-      `http://127.0.0.1:${PORT}`,
-      `http://localhost:${PORT}`,
-    ],
+    origin: (origin) => {
+      if (!origin) return origin;
+      if (
+        origin === "http://127.0.0.1:5173" ||
+        origin === "http://localhost:5173" ||
+        origin === "tauri://localhost" ||
+        origin === "http://tauri.localhost" ||
+        /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
+      ) {
+        return origin;
+      }
+      return null;
+    },
   }),
 );
 
@@ -82,6 +92,17 @@ app.get("/api/health", (c) => c.json({ ok: true, name: "runside" }));
 app.get("/api/gh/status", async (c) => {
   const status = await getGhStatus();
   return c.json(status);
+});
+
+app.get("/api/gh/repos", async (c) => {
+  try {
+    const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 50) || 50));
+    const repos = await listAccessibleRepos(limit);
+    return c.json({ repos });
+  } catch (err) {
+    const { status, body } = errorMessage(err);
+    return c.json(body, status);
+  }
 });
 
 app.get("/api/settings", async (c) => {
@@ -218,8 +239,11 @@ app.post("/api/runs/:id/artifacts/:name/open", async (c) => {
       urlPath = result.reportUrl;
     }
 
-    const absolute = `http://${HOST}:${PORT}${urlPath}`;
-    await open(absolute);
+    const listenPort = Number(process.env.RUNSIDE_LISTEN_PORT ?? PORT);
+    const absolute = `http://${HOST}:${listenPort}${urlPath}`;
+    if (!DESKTOP) {
+      await open(absolute);
+    }
     return c.json({ reportUrl: urlPath, opened: absolute });
   } catch (err) {
     const { status, body } = errorMessage(err);
@@ -268,13 +292,26 @@ app.use("/reports/*", async (c, next) => {
   return rewrite(c, next);
 });
 
-// In production, serve the built web UI (dev uses Vite on :5173)
-const webDistCandidates = [
-  join(__dirname, "../../web/dist"),
-  join(process.cwd(), "../web/dist"),
-  join(process.cwd(), "apps/web/dist"),
-];
-const staticRoot = webDistCandidates.find((p) => existsSync(p)) ?? null;
+function resolveWebDist(): string | null {
+  const fromEnv = process.env.RUNSIDE_WEB_DIST?.trim();
+  const candidates = [
+    fromEnv,
+    // Sidecar layout: web/ next to the executable / cwd
+    join(process.cwd(), "web"),
+    join(dirname(process.execPath), "web"),
+    join(__dirname, "web"),
+    join(__dirname, "../../web/dist"),
+    join(process.cwd(), "../web/dist"),
+    join(process.cwd(), "apps/web/dist"),
+  ].filter((p): p is string => Boolean(p));
+
+  for (const p of candidates) {
+    if (existsSync(join(p, "index.html"))) return p;
+  }
+  return null;
+}
+
+const staticRoot = resolveWebDist();
 
 if (staticRoot) {
   app.use("/*", serveStatic({ root: staticRoot }));
@@ -289,16 +326,23 @@ if (staticRoot) {
   });
 }
 
-await ensureHubDirs();
+void (async () => {
+  await ensureHubDirs();
+  serve(
+    {
+      fetch: app.fetch,
+      hostname: HOST,
+      port: PORT,
+    },
+    (info) => {
+      process.env.RUNSIDE_LISTEN_PORT = String(info.port);
+      const url = `http://${HOST}:${info.port}`;
+      console.log(`Runside API listening on ${url}`);
+      console.log(`Cache: ${cacheDir()}`);
+      if (staticRoot) console.log(`UI: ${staticRoot}`);
+      // Machine-readable ready line for the Tauri shell
+      console.log(`RUNSIDE_READY ${url}`);
+    },
+  );
+})();
 
-serve(
-  {
-    fetch: app.fetch,
-    hostname: HOST,
-    port: PORT,
-  },
-  (info) => {
-    console.log(`Runside API listening on http://${HOST}:${info.port}`);
-    console.log(`Cache: ${cacheDir()}`);
-  },
-);

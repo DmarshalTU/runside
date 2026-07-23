@@ -34,12 +34,19 @@ export async function getGhStatus(): Promise<GhStatus> {
         message: combined.trim() || "Not logged in. Run: gh auth login",
       };
     }
-    const loginMatch = combined.match(/Logged in to .* account (\S+)/i);
+
+    let loggedInAs: string | undefined;
+    try {
+      loggedInAs = (await runGhOk(["api", "user", "--jq", ".login"])).trim();
+    } catch {
+      loggedInAs = combined.match(/Logged in to .* account (\S+)/i)?.[1];
+    }
+
     return {
       installed: true,
       authenticated: true,
       message: `Authenticated via ${bin}`,
-      loggedInAs: loginMatch?.[1],
+      loggedInAs,
     };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT" || err instanceof GhError) {
@@ -355,6 +362,27 @@ export async function detectRepoFromGh(): Promise<{ owner: string; repo: string 
   } catch {
     return null;
   }
+}
+
+export async function listAccessibleRepos(limit = 50): Promise<
+  Array<{ nameWithOwner: string; description: string; isPrivate: boolean }>
+> {
+  const safeLimit = Math.min(100, Math.max(1, limit));
+  const items = await runGhJson<
+    Array<{ nameWithOwner: string; description: string | null; isPrivate: boolean }>
+  >([
+    "repo",
+    "list",
+    "--limit",
+    String(safeLimit),
+    "--json",
+    "nameWithOwner,description,isPrivate",
+  ]);
+  return (items ?? []).map((r) => ({
+    nameWithOwner: r.nameWithOwner,
+    description: r.description ?? "",
+    isPrivate: Boolean(r.isPrivate),
+  }));
 }
 
 export async function listArtifacts(

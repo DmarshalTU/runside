@@ -90,7 +90,13 @@ export async function loadSettings(): Promise<HubSettings> {
   try {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw) as Partial<HubSettings>;
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      recentRepos: Array.isArray(parsed.recentRepos)
+        ? parsed.recentRepos.filter((s): s is string => typeof s === "string")
+        : [],
+    };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -98,13 +104,26 @@ export async function loadSettings(): Promise<HubSettings> {
 
 export async function saveSettings(settings: HubSettings): Promise<HubSettings> {
   await ensureHubDirs();
+  const owner = settings.owner.trim();
+  const repo = settings.repo.trim();
+  const slug = owner && repo ? `${owner}/${repo}` : "";
+  const recent = [
+    ...(slug ? [slug] : []),
+    ...(settings.recentRepos ?? []),
+  ]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s, i, arr) => arr.indexOf(s) === i)
+    .slice(0, 12);
+
   const next: HubSettings = {
-    owner: settings.owner.trim(),
-    repo: settings.repo.trim(),
+    owner,
+    repo,
     workflowFile: settings.workflowFile.trim(),
     workflowName: settings.workflowName.trim(),
     artifactPrefix:
       settings.artifactPrefix.trim() || DEFAULT_SETTINGS.artifactPrefix,
+    recentRepos: recent,
   };
   await writeFile(settingsPath(), JSON.stringify(next, null, 2), "utf8");
   return next;

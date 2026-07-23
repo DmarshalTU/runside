@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Runside</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1412;
+        --fg: #e8f0ea;
+        --muted: #8a9a90;
+        --accent: #3d9a6a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(ellipse 80% 50% at 50% -20%, #1a3d2c 0%, transparent 55%),
+          var(--bg);
+        color: var(--fg);
+      }
+      .wrap { text-align: center; padding: 2rem; }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 2rem;
+        font-weight: 650;
+        letter-spacing: -0.03em;
+      }
+      p { margin: 0; color: var(--muted); }
+      .dot {
+        display: inline-block;
+        width: 0.55rem;
+        height: 0.55rem;
+        margin-right: 0.4rem;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.35; transform: scale(0.9); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Runside</h1>
+      <p><span class="dot"></span>Starting local server…</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

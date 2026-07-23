@@ -13,13 +13,21 @@
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w @testops-hub/server\" \"npm run dev -w @testops-hub/web\"",
     "build": "npm run build -w @testops-hub/shared && npm run build -w @testops-hub/server && npm run build -w @testops-hub/web",
     "start": "npm run start -w @testops-hub/server",
-    "typecheck": "npm run typecheck -w @testops-hub/shared && npm run typecheck -w @testops-hub/server && npm run typecheck -w @testops-hub/web"
+    "typecheck": "npm run typecheck -w @testops-hub/shared && npm run typecheck -w @testops-hub/server && npm run typecheck -w @testops-hub/web",
+    "desktop:sidecar": "npm run build -w @testops-hub/web && node scripts/bundle-server.mjs && node scripts/prepare-sidecar.mjs",
+    "desktop:dev": "npm run build -w @testops-hub/web && npm run tauri -w @testops-hub/desktop -- dev",
+    "desktop:build": "npm run tauri -w @testops-hub/desktop -- build"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "concurrently": "^9.1.2",
+    "esbuild": "^0.28.1",
     "typescript": "^5.8.2"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@testops-hub/desktop": "^0.1.0"
   }
 }

@@ -1,6 +1,7 @@
 import type {
   DispatchResult,
   DownloadResult,
+  GhRepoSummary,
   GhStatus,
   HubSettings,
   RunDetail,
@@ -33,6 +34,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ ok: boolean }>("/api/health"),
   ghStatus: () => request<GhStatus>("/api/gh/status"),
+  listRepos: (limit = 50) =>
+    request<{ repos: GhRepoSummary[] }>(`/api/gh/repos?limit=${limit}`),
   getSettings: () => request<HubSettings>("/api/settings"),
   saveSettings: (settings: HubSettings) =>
     request<HubSettings>("/api/settings", {
