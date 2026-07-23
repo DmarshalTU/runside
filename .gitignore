@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+.turbo/
+coverage/
+
+# Cursor / AI tooling (local only — do not commit)
+.cursor/
+.cursorrules
+.cursorignore
+.cursorindexingignore
+.claude/
+.aider*
+.codex/
+.continue/
+.windsurf/
+.gemini/
+.github/copilot-instructions.md
