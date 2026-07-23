@@ -1,9 +1,11 @@
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import {
   DEFAULT_SETTINGS,
+  type ArtifactKind,
+  type CachedReport,
   type HubSettings,
 } from "@testops-hub/shared";
 
@@ -64,6 +66,10 @@ export function artifactCacheDir(runId: string | number, artifactName: string): 
   return assertInsideCache(join(cacheDir(), id, name));
 }
 
+export function cacheKey(runId: string | number, artifactName: string): string {
+  return `${assertSafeRunId(runId)}/${assertSafeArtifactName(artifactName)}`;
+}
+
 export async function ensureHubDirs(): Promise<void> {
   await mkdir(hubDataDir(), { recursive: true });
   await mkdir(cacheDir(), { recursive: true });
@@ -80,6 +86,57 @@ async function maybeMigrateLegacySettings(): Promise<void> {
   }
 }
 
+export function normalizeSettings(parsed: Partial<HubSettings>): HubSettings {
+  const base = { ...DEFAULT_SETTINGS, ...parsed };
+
+  let artifactPrefixes = Array.isArray(parsed.artifactPrefixes)
+    ? parsed.artifactPrefixes.filter((s): s is string => typeof s === "string" && s.trim() !== "")
+    : [...DEFAULT_SETTINGS.artifactPrefixes];
+  const legacyPrefix = (parsed.artifactPrefix ?? base.artifactPrefix)?.trim();
+  if (legacyPrefix && !artifactPrefixes.includes(legacyPrefix)) {
+    artifactPrefixes = [legacyPrefix, ...artifactPrefixes];
+  }
+  if (artifactPrefixes.length === 0) {
+    artifactPrefixes = [...DEFAULT_SETTINGS.artifactPrefixes];
+  }
+
+  let workflowFiles = Array.isArray(parsed.workflowFiles)
+    ? parsed.workflowFiles.filter((s): s is string => typeof s === "string" && s.trim() !== "")
+    : [];
+  const wf = (parsed.workflowFile ?? base.workflowFile)?.trim();
+  if (wf && !workflowFiles.includes(wf)) {
+    workflowFiles = [wf, ...workflowFiles];
+  }
+
+  const pinnedCache = Array.isArray(parsed.pinnedCache)
+    ? parsed.pinnedCache.filter((s): s is string => typeof s === "string")
+    : [];
+
+  return {
+    ...base,
+    owner: (base.owner ?? "").trim(),
+    repo: (base.repo ?? "").trim(),
+    workflowFile: wf ?? "",
+    workflowName: (base.workflowName ?? "").trim(),
+    workflowFiles,
+    artifactPrefix: legacyPrefix || artifactPrefixes[0] || DEFAULT_SETTINGS.artifactPrefix,
+    artifactPrefixes,
+    cacheMaxReports:
+      typeof parsed.cacheMaxReports === "number"
+        ? Math.max(0, parsed.cacheMaxReports)
+        : DEFAULT_SETTINGS.cacheMaxReports,
+    cacheMaxMb:
+      typeof parsed.cacheMaxMb === "number"
+        ? Math.max(0, parsed.cacheMaxMb)
+        : DEFAULT_SETTINGS.cacheMaxMb,
+    recentRepos: Array.isArray(parsed.recentRepos)
+      ? parsed.recentRepos.filter((s): s is string => typeof s === "string")
+      : [],
+    githubHost: (parsed.githubHost ?? base.githubHost ?? "github.com").trim() || "github.com",
+    pinnedCache,
+  };
+}
+
 export async function loadSettings(): Promise<HubSettings> {
   await ensureHubDirs();
   await maybeMigrateLegacySettings();
@@ -90,13 +147,7 @@ export async function loadSettings(): Promise<HubSettings> {
   try {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw) as Partial<HubSettings>;
-    return {
-      ...DEFAULT_SETTINGS,
-      ...parsed,
-      recentRepos: Array.isArray(parsed.recentRepos)
-        ? parsed.recentRepos.filter((s): s is string => typeof s === "string")
-        : [],
-    };
+    return normalizeSettings(parsed);
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -104,12 +155,13 @@ export async function loadSettings(): Promise<HubSettings> {
 
 export async function saveSettings(settings: HubSettings): Promise<HubSettings> {
   await ensureHubDirs();
-  const owner = settings.owner.trim();
-  const repo = settings.repo.trim();
+  const normalized = normalizeSettings(settings);
+  const owner = normalized.owner;
+  const repo = normalized.repo;
   const slug = owner && repo ? `${owner}/${repo}` : "";
   const recent = [
     ...(slug ? [slug] : []),
-    ...(settings.recentRepos ?? []),
+    ...(normalized.recentRepos ?? []),
   ]
     .map((s) => s.trim())
     .filter(Boolean)
@@ -117,12 +169,7 @@ export async function saveSettings(settings: HubSettings): Promise<HubSettings> 
     .slice(0, 12);
 
   const next: HubSettings = {
-    owner,
-    repo,
-    workflowFile: settings.workflowFile.trim(),
-    workflowName: settings.workflowName.trim(),
-    artifactPrefix:
-      settings.artifactPrefix.trim() || DEFAULT_SETTINGS.artifactPrefix,
+    ...normalized,
     recentRepos: recent,
   };
   await writeFile(settingsPath(), JSON.stringify(next, null, 2), "utf8");
@@ -134,9 +181,21 @@ export function repoSlug(settings: HubSettings): string | null {
   return `${settings.owner}/${settings.repo}`;
 }
 
+export function artifactKind(name: string): ArtifactKind {
+  const n = name.toLowerCase();
+  if (n.startsWith("allure-report") || n.includes("allure")) return "allure";
+  if (n.startsWith("playwright-report") || n.includes("playwright-report")) return "playwright";
+  if (n.startsWith("trace") || n.includes("trace")) return "trace";
+  return "other";
+}
+
 export function isArtifactCached(runId: string | number, artifactName: string): boolean {
   const dir = artifactCacheDir(runId, artifactName);
   const name = assertSafeArtifactName(artifactName);
+  const kind = artifactKind(name);
+  if (kind === "trace") {
+    return existsSync(dir);
+  }
   return (
     existsSync(join(dir, "index.html")) ||
     existsSync(join(dir, name, "index.html"))
@@ -162,6 +221,9 @@ export function resolveReportIndex(
 export function reportUrlPath(runId: string | number, artifactName: string): string {
   const id = assertSafeRunId(runId);
   const name = assertSafeArtifactName(artifactName);
+  if (artifactKind(name) === "trace") {
+    return `/reports/${id}/${encodeURIComponent(name)}/`;
+  }
   const index = resolveReportIndex(id, name);
   if (!index) {
     return `/reports/${id}/${encodeURIComponent(name)}/`;
@@ -178,4 +240,117 @@ export function reportUrlPath(runId: string | number, artifactName: string): str
 export async function clearReportCache(): Promise<void> {
   await rm(cacheDir(), { recursive: true, force: true });
   await mkdir(cacheDir(), { recursive: true });
+}
+
+async function dirSizeBytes(dir: string): Promise<number> {
+  if (!existsSync(dir)) return 0;
+  let total = 0;
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const e of entries) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) total += await dirSizeBytes(p);
+    else {
+      try {
+        total += (await stat(p)).size;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return total;
+}
+
+export async function listCachedReports(settings: HubSettings): Promise<CachedReport[]> {
+  await ensureHubDirs();
+  const root = cacheDir();
+  if (!existsSync(root)) return [];
+  const pinned = new Set(settings.pinnedCache ?? []);
+  const out: CachedReport[] = [];
+  const runDirs = await readdir(root, { withFileTypes: true });
+  for (const runEnt of runDirs) {
+    if (!runEnt.isDirectory() || !/^\d+$/.test(runEnt.name)) continue;
+    const runId = runEnt.name;
+    const arts = await readdir(join(root, runId), { withFileTypes: true });
+    for (const art of arts) {
+      if (!art.isDirectory()) continue;
+      try {
+        assertSafeArtifactName(art.name);
+      } catch {
+        continue;
+      }
+      if (!isArtifactCached(runId, art.name)) continue;
+      const dir = artifactCacheDir(runId, art.name);
+      const st = await stat(dir);
+      out.push({
+        runId,
+        artifactName: art.name,
+        kind: artifactKind(art.name),
+        reportUrl: reportUrlPath(runId, art.name),
+        pinned: pinned.has(cacheKey(runId, art.name)),
+        sizeBytes: await dirSizeBytes(dir),
+        mtimeMs: st.mtimeMs,
+      });
+    }
+  }
+  out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return out;
+}
+
+export async function setPinned(
+  settings: HubSettings,
+  runId: string,
+  artifactName: string,
+  pinned: boolean,
+): Promise<HubSettings> {
+  const key = cacheKey(runId, artifactName);
+  const set = new Set(settings.pinnedCache ?? []);
+  if (pinned) set.add(key);
+  else set.delete(key);
+  return saveSettings({ ...settings, pinnedCache: [...set] });
+}
+
+export async function pruneCache(settings: HubSettings): Promise<void> {
+  const maxReports = settings.cacheMaxReports ?? 0;
+  const maxMb = settings.cacheMaxMb ?? 0;
+  if (maxReports <= 0 && maxMb <= 0) return;
+
+  const pinned = new Set(settings.pinnedCache ?? []);
+  let items = await listCachedReports(settings);
+
+  const removeOne = async (item: CachedReport) => {
+    if (pinned.has(cacheKey(item.runId, item.artifactName))) return false;
+    await rm(artifactCacheDir(item.runId, item.artifactName), {
+      recursive: true,
+      force: true,
+    });
+    return true;
+  };
+
+  // Oldest first among unpinned
+  const unpinnedOldest = () =>
+    [...items]
+      .filter((i) => !pinned.has(cacheKey(i.runId, i.artifactName)))
+      .sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+  if (maxReports > 0) {
+    while (items.length > maxReports) {
+      const victims = unpinnedOldest();
+      if (victims.length === 0) break;
+      await removeOne(victims[0]!);
+      items = await listCachedReports(settings);
+    }
+  }
+
+  if (maxMb > 0) {
+    const limit = maxMb * 1024 * 1024;
+    let total = items.reduce((s, i) => s + i.sizeBytes, 0);
+    while (total > limit) {
+      const victims = unpinnedOldest();
+      if (victims.length === 0) break;
+      const v = victims[0]!;
+      await removeOne(v);
+      items = await listCachedReports(settings);
+      total = items.reduce((s, i) => s + i.sizeBytes, 0);
+    }
+  }
 }

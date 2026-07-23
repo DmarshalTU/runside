@@ -83,7 +83,7 @@ export function resolveGhBin(): string {
  */
 export function runGh(
   args: string[],
-  options: { cwd?: string; timeoutMs?: number } = {},
+  options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<GhResult> {
   const timeoutMs = options.timeoutMs ?? 120_000;
   let bin: string;
@@ -98,7 +98,7 @@ export function runGh(
       shell: false,
       cwd: options.cwd,
       windowsHide: true,
-      env: process.env,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
     });
 
     let stdout = "";
@@ -143,7 +143,7 @@ export function runGh(
 
 export async function runGhOk(
   args: string[],
-  options?: { cwd?: string; timeoutMs?: number },
+  options?: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv },
 ): Promise<string> {
   let result: GhResult;
   try {
@@ -173,7 +173,7 @@ export async function runGhOk(
 
 export async function runGhJson<T>(
   args: string[],
-  options?: { cwd?: string; timeoutMs?: number },
+  options?: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv },
 ): Promise<T> {
   const stdout = await runGhOk(args, options);
   const trimmed = stdout.trim();

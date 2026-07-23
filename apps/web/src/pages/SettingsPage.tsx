@@ -291,39 +291,104 @@ export function SettingsPage() {
             />
           </div>
           <div className="field">
-            <label htmlFor="workflowFile">Workflow file</label>
+            <label htmlFor="githubHost">GitHub host</label>
             <input
-              id="workflowFile"
-              value={settings.workflowFile}
-              onChange={(e) => setField("workflowFile", e.target.value)}
-              placeholder="playwright.yml"
-              required
+              id="githubHost"
+              value={settings.githubHost}
+              onChange={(e) => setField("githubHost", e.target.value)}
+              placeholder="github.com"
             />
           </div>
           <div className="field">
-            <label htmlFor="workflowName">Workflow name (for run list)</label>
+            <label htmlFor="workflowFile">Active workflow file</label>
+            <input
+              id="workflowFile"
+              value={settings.workflowFile}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSettings((prev) => ({
+                  ...prev,
+                  workflowFile: v,
+                  workflowFiles: [
+                    v,
+                    ...(prev.workflowFiles ?? []).filter((f) => f && f !== v),
+                  ].filter(Boolean),
+                }));
+              }}
+              placeholder="playwright.yml"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="workflowFiles">Workflow files (comma-separated)</label>
+            <input
+              id="workflowFiles"
+              value={(settings.workflowFiles ?? []).join(", ")}
+              onChange={(e) =>
+                setField(
+                  "workflowFiles",
+                  e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                )
+              }
+              placeholder="playwright.yml, nightly.yml"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="workflowName">Workflow name filter (runs list)</label>
             <input
               id="workflowName"
               value={settings.workflowName}
               onChange={(e) => setField("workflowName", e.target.value)}
-              placeholder="Playwright + Allure"
+              placeholder="Leave empty for all workflows"
             />
           </div>
           <div className="field">
-            <label htmlFor="artifactPrefix">Artifact name prefix</label>
+            <label htmlFor="artifactPrefixes">Artifact prefixes (comma-separated)</label>
             <input
-              id="artifactPrefix"
-              value={settings.artifactPrefix}
-              onChange={(e) => setField("artifactPrefix", e.target.value)}
-              placeholder="allure-report-"
+              id="artifactPrefixes"
+              value={(settings.artifactPrefixes ?? []).join(", ")}
+              onChange={(e) => {
+                const list = e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                setSettings((prev) => ({
+                  ...prev,
+                  artifactPrefixes: list,
+                  artifactPrefix: list[0] ?? prev.artifactPrefix,
+                }));
+              }}
+              placeholder="allure-report-, playwright-report, trace"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cacheMaxReports">Cache max reports (0 = unlimited)</label>
+            <input
+              id="cacheMaxReports"
+              type="number"
+              min={0}
+              value={settings.cacheMaxReports}
+              onChange={(e) => setField("cacheMaxReports", Number(e.target.value) || 0)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="cacheMaxMb">Cache max MiB (0 = unlimited)</label>
+            <input
+              id="cacheMaxMb"
+              type="number"
+              min={0}
+              value={settings.cacheMaxMb}
+              onChange={(e) => setField("cacheMaxMb", Number(e.target.value) || 0)}
             />
           </div>
         </div>
 
         <p className="muted" style={{ margin: 0 }}>
-          Active repo is what Runs / Trigger use. Owner autofills from{" "}
-          <span className="mono">gh api user</span>; override for org repos. Detect uses the server
-          process working directory, not your browser.
+          Empty workflow name lists all runs for the repo. Active workflow file is used by Trigger.
+          Owner autofills from <span className="mono">gh</span>. Deep links:{" "}
+          <span className="mono">runside://runs/123</span>.
         </p>
 
         <div className="row">

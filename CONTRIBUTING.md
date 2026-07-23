@@ -31,6 +31,8 @@ npm run build
 
 Desktop installers: `npm run desktop:build` (needs Rust). CI builds Win/macOS/Linux via `.github/workflows/release-desktop.yml`.
 
+Phase 2 features: re-run/cancel, multi-artifact + cache library, compare runs, multi-workflow settings, tray + `runside://` deep links, GHES host.
+
 ## Guidelines
 
 - Keep the MVP local-first: no cloud multi-tenant backend in core.

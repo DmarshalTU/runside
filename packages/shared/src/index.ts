@@ -1,14 +1,26 @@
 export type HubSettings = {
   owner: string;
   repo: string;
-  /** Workflow file name, e.g. playwright.yml */
+  /** Active workflow file name, e.g. playwright.yml */
   workflowFile: string;
   /** Workflow display name filter for `gh run list --workflow` */
   workflowName: string;
-  /** Prefix for Allure report artifacts, e.g. allure-report- */
+  /** Known workflow files for this repo (multi-workflow) */
+  workflowFiles: string[];
+  /** Legacy single prefix; migrated into artifactPrefixes */
   artifactPrefix: string;
+  /** Match any of these prefixes when listing artifacts */
+  artifactPrefixes: string[];
+  /** Max cached report folders (unpin oldest first). 0 = unlimited */
+  cacheMaxReports: number;
+  /** Max cache size in MiB. 0 = unlimited */
+  cacheMaxMb: number;
   /** Recently selected repos as owner/name (most recent first) */
   recentRepos: string[];
+  /** github.com or GHES hostname */
+  githubHost: string;
+  /** Pinned cache keys: `${runId}/${artifactName}` */
+  pinnedCache: string[];
 };
 
 export const DEFAULT_SETTINGS: HubSettings = {
@@ -16,8 +28,14 @@ export const DEFAULT_SETTINGS: HubSettings = {
   repo: "",
   workflowFile: "",
   workflowName: "",
+  workflowFiles: [],
   artifactPrefix: "allure-report-",
+  artifactPrefixes: ["allure-report-", "playwright-report", "trace"],
+  cacheMaxReports: 30,
+  cacheMaxMb: 2048,
   recentRepos: [],
+  githubHost: "github.com",
+  pinnedCache: [],
 };
 
 export type GhStatus = {
@@ -79,6 +97,8 @@ export type WorkflowRun = {
   actor?: string;
 };
 
+export type ArtifactKind = "allure" | "playwright" | "trace" | "other";
+
 export type RunArtifact = {
   name: string;
   sizeInBytes?: number;
@@ -86,6 +106,8 @@ export type RunArtifact = {
   /** Local cache path relative to hub data dir, if downloaded */
   cached: boolean;
   reportUrl?: string;
+  kind: ArtifactKind;
+  pinned?: boolean;
 };
 
 export type RunDetail = WorkflowRun & {
@@ -130,9 +152,25 @@ export type DownloadResult = {
   name: string;
   reportUrl: string;
   cached: boolean;
+  kind: ArtifactKind;
 };
 
 export type DispatchResult = {
   ok: true;
   message: string;
+};
+
+export type ActionResult = {
+  ok: true;
+  message: string;
+};
+
+export type CachedReport = {
+  runId: string;
+  artifactName: string;
+  kind: ArtifactKind;
+  reportUrl: string;
+  pinned: boolean;
+  sizeBytes: number;
+  mtimeMs: number;
 };

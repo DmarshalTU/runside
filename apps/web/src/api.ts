@@ -1,4 +1,6 @@
 import type {
+  ActionResult,
+  CachedReport,
   DispatchResult,
   DownloadResult,
   GhRepoSummary,
@@ -48,6 +50,18 @@ export const api = {
     }),
   clearCache: () =>
     request<{ ok: true; message: string }>("/api/cache", { method: "DELETE" }),
+  listCachedReports: () =>
+    request<{ reports: CachedReport[] }>("/api/cache/reports"),
+  pinCache: (runId: string | number, name: string) =>
+    request<HubSettings>(
+      `/api/cache/${runId}/${encodeURIComponent(name)}/pin`,
+      { method: "POST" },
+    ),
+  unpinCache: (runId: string | number, name: string) =>
+    request<HubSettings>(
+      `/api/cache/${runId}/${encodeURIComponent(name)}/pin`,
+      { method: "DELETE" },
+    ),
   listRuns: (limit = 20) =>
     request<{ runs: WorkflowRun[] }>(`/api/runs?limit=${limit}`),
   getRun: (id: string | number) => request<RunDetail>(`/api/runs/${id}`),
@@ -57,6 +71,10 @@ export const api = {
     const q = jobId != null ? `?job=${jobId}` : "";
     return request<RunLogs>(`/api/runs/${id}/logs${q}`);
   },
+  rerun: (id: string | number) =>
+    request<ActionResult>(`/api/runs/${id}/rerun`, { method: "POST" }),
+  cancel: (id: string | number) =>
+    request<ActionResult>(`/api/runs/${id}/cancel`, { method: "POST" }),
   downloadArtifact: (runId: string | number, name: string) =>
     request<DownloadResult>(
       `/api/runs/${runId}/artifacts/${encodeURIComponent(name)}/download`,

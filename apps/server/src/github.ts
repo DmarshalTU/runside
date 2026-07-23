@@ -1,4 +1,5 @@
 import type {
+  ArtifactKind,
   GhStatus,
   HubSettings,
   RunArtifact,
@@ -14,18 +15,42 @@ import { parse as parseYaml } from "yaml";
 import { GhError, resolveGhBin, runGh, runGhJson, runGhOk } from "./gh.js";
 import {
   artifactCacheDir,
+  artifactKind,
   assertSafeArtifactName,
   assertSafeRunId,
+  cacheKey,
   isArtifactCached,
+  pruneCache,
   reportUrlPath,
   repoSlug,
 } from "./paths.js";
 import { mkdir, rm } from "node:fs/promises";
 
-export async function getGhStatus(): Promise<GhStatus> {
+function ghEnv(settings: HubSettings): { env?: NodeJS.ProcessEnv } {
+  const host = settings.githubHost?.trim();
+  if (host && host !== "github.com") {
+    return { env: { GH_HOST: host } };
+  }
+  return {};
+}
+
+function artifactPrefixes(settings: HubSettings): string[] {
+  const list =
+    settings.artifactPrefixes?.length > 0
+      ? settings.artifactPrefixes
+      : [settings.artifactPrefix || "allure-report-"];
+  return list.map((p) => p.trim()).filter(Boolean);
+}
+
+function matchesArtifactPrefix(name: string, prefixes: string[]): boolean {
+  return prefixes.some((p) => name.startsWith(p) || name === p);
+}
+
+export async function getGhStatus(settings?: HubSettings): Promise<GhStatus> {
   try {
     const bin = resolveGhBin();
-    const result = await runGh(["auth", "status"]);
+    const opts = settings ? ghEnv(settings) : {};
+    const result = await runGh(["auth", "status"], opts);
     const combined = `${result.stdout}\n${result.stderr}`;
     if (result.code !== 0) {
       return {
@@ -37,7 +62,7 @@ export async function getGhStatus(): Promise<GhStatus> {
 
     let loggedInAs: string | undefined;
     try {
-      loggedInAs = (await runGhOk(["api", "user", "--jq", ".login"])).trim();
+      loggedInAs = (await runGhOk(["api", "user", "--jq", ".login"], opts)).trim();
     } catch {
       loggedInAs = combined.match(/Logged in to .* account (\S+)/i)?.[1];
     }
@@ -125,22 +150,18 @@ export async function listRuns(
 ): Promise<WorkflowRun[]> {
   const repo = requireRepo(settings);
   const workflow = settings.workflowName || settings.workflowFile;
-  if (!workflow) {
-    throw new Error("Set workflow file or workflow name in Settings");
-  }
   const safeLimit = Math.min(100, Math.max(1, Number.isFinite(limit) ? limit : 20));
-  const items = await runGhJson<GhRunListItem[]>([
-    "run",
-    "list",
-    "--repo",
-    repo,
-    "--workflow",
-    workflow,
+  const args = ["run", "list", "--repo", repo];
+  if (workflow) {
+    args.push("--workflow", workflow);
+  }
+  args.push(
     "--limit",
     String(safeLimit),
     "--json",
     "databaseId,displayTitle,workflowName,status,conclusion,event,headBranch,createdAt,updatedAt,url",
-  ]);
+  );
+  const items = await runGhJson<GhRunListItem[]>(args, ghEnv(settings));
   return items.map((i) => mapRun(i));
 }
 
@@ -149,15 +170,18 @@ export async function getRun(
   runId: string,
 ): Promise<GhRunView> {
   const repo = requireRepo(settings);
-  return runGhJson<GhRunView>([
-    "run",
-    "view",
-    runId,
-    "--repo",
-    repo,
-    "--json",
-    "databaseId,displayTitle,workflowName,status,conclusion,event,headBranch,createdAt,updatedAt,url",
-  ]);
+  return runGhJson<GhRunView>(
+    [
+      "run",
+      "view",
+      runId,
+      "--repo",
+      repo,
+      "--json",
+      "databaseId,displayTitle,workflowName,status,conclusion,event,headBranch,createdAt,updatedAt,url",
+    ],
+    ghEnv(settings),
+  );
 }
 
 type GhJobStep = {
@@ -183,15 +207,10 @@ export async function listJobs(
   runId: string,
 ): Promise<WorkflowJob[]> {
   const repo = requireRepo(settings);
-  const data = await runGhJson<{ jobs: GhJob[] }>([
-    "run",
-    "view",
-    runId,
-    "--repo",
-    repo,
-    "--json",
-    "jobs",
-  ]);
+  const data = await runGhJson<{ jobs: GhJob[] }>(
+    ["run", "view", runId, "--repo", repo, "--json", "jobs"],
+    ghEnv(settings),
+  );
 
   return (data.jobs ?? []).map((j) => ({
     databaseId: j.databaseId,
@@ -215,7 +234,11 @@ const LOG_MAX_CHARS = 400_000;
 /** Completed job logs — cached so polling does not re-download every few seconds. */
 const jobLogCache = new Map<number, string>();
 
-async function fetchJobLogText(repo: string, jobId: number): Promise<string> {
+async function fetchJobLogText(
+  repo: string,
+  jobId: number,
+  opts?: { env?: NodeJS.ProcessEnv },
+): Promise<string> {
   const cached = jobLogCache.get(jobId);
   if (cached != null) return cached;
 
@@ -223,7 +246,7 @@ async function fetchJobLogText(repo: string, jobId: number): Promise<string> {
   // `gh run view --log` refuses until the entire run completes.
   const text = await runGhOk(
     ["api", `repos/${repo}/actions/jobs/${jobId}/logs`],
-    { timeoutMs: 180_000 },
+    { timeoutMs: 180_000, ...opts },
   );
   jobLogCache.set(jobId, text);
   // Bound memory: drop oldest entries if the map grows large
@@ -287,7 +310,7 @@ export async function getRunLogs(
   for (const job of targets) {
     if (job.status === "completed") {
       try {
-        const text = await fetchJobLogText(repo, job.databaseId);
+        const text = await fetchJobLogText(repo, job.databaseId, ghEnv(settings));
         anyLog = true;
         parts.push(`######## ${job.name} ########\n${text.trimEnd()}\n`);
       } catch (err) {
@@ -315,7 +338,7 @@ export async function getRunLogs(
     try {
       const args = ["run", "view", runId, "--repo", repo, "--log"];
       if (jobId != null) args.push("--job", String(jobId));
-      const text = await runGhOk(args, { timeoutMs: 180_000 });
+      const text = await runGhOk(args, { timeoutMs: 180_000, ...ghEnv(settings) });
       anyLog = true;
       parts.length = 0;
       parts.push(text);
@@ -364,20 +387,26 @@ export async function detectRepoFromGh(): Promise<{ owner: string; repo: string 
   }
 }
 
-export async function listAccessibleRepos(limit = 50): Promise<
+export async function listAccessibleRepos(
+  settings: HubSettings,
+  limit = 50,
+): Promise<
   Array<{ nameWithOwner: string; description: string; isPrivate: boolean }>
 > {
   const safeLimit = Math.min(100, Math.max(1, limit));
   const items = await runGhJson<
     Array<{ nameWithOwner: string; description: string | null; isPrivate: boolean }>
-  >([
-    "repo",
-    "list",
-    "--limit",
-    String(safeLimit),
-    "--json",
-    "nameWithOwner,description,isPrivate",
-  ]);
+  >(
+    [
+      "repo",
+      "list",
+      "--limit",
+      String(safeLimit),
+      "--json",
+      "nameWithOwner,description,isPrivate",
+    ],
+    ghEnv(settings),
+  );
   return (items ?? []).map((r) => ({
     nameWithOwner: r.nameWithOwner,
     description: r.description ?? "",
@@ -391,15 +420,16 @@ export async function listArtifacts(
 ): Promise<RunArtifact[]> {
   const repo = requireRepo(settings);
   const safeId = assertSafeRunId(runId);
-  const raw = await runGhOk([
-    "api",
-    `repos/${repo}/actions/runs/${safeId}/artifacts`,
-  ]);
+  const raw = await runGhOk(
+    ["api", `repos/${repo}/actions/runs/${safeId}/artifacts`],
+    ghEnv(settings),
+  );
   const data = JSON.parse(raw) as GhArtifactApi;
-  const prefix = settings.artifactPrefix || "allure-report-";
+  const prefixes = artifactPrefixes(settings);
+  const pinned = new Set(settings.pinnedCache ?? []);
 
   return (data.artifacts ?? [])
-    .filter((a) => a.name.startsWith(prefix))
+    .filter((a) => matchesArtifactPrefix(a.name, prefixes))
     .filter((a) => {
       try {
         assertSafeArtifactName(a.name);
@@ -410,11 +440,14 @@ export async function listArtifacts(
     })
     .map((a) => {
       const cached = isArtifactCached(safeId, a.name);
+      const kind: ArtifactKind = artifactKind(a.name);
       return {
         name: a.name,
         sizeInBytes: a.size_in_bytes,
         expired: a.expired,
         cached,
+        kind,
+        pinned: pinned.has(cacheKey(safeId, a.name)),
         reportUrl: cached ? reportUrlPath(safeId, a.name) : undefined,
       };
     });
@@ -424,11 +457,12 @@ export async function downloadArtifact(
   settings: HubSettings,
   runId: string,
   artifactName: string,
-): Promise<{ reportUrl: string }> {
+): Promise<{ reportUrl: string; kind: ArtifactKind }> {
   const repo = requireRepo(settings);
   const safeId = assertSafeRunId(runId);
   const safeName = assertSafeArtifactName(artifactName);
   const dest = artifactCacheDir(safeId, safeName);
+  const kind = artifactKind(safeName);
 
   await rm(dest, { recursive: true, force: true });
   await mkdir(dest, { recursive: true });
@@ -445,30 +479,46 @@ export async function downloadArtifact(
       "--dir",
       dest,
     ],
-    { timeoutMs: 300_000 },
+    { timeoutMs: 300_000, ...ghEnv(settings) },
   );
 
-  if (!isArtifactCached(safeId, safeName)) {
+  if (kind !== "trace" && !isArtifactCached(safeId, safeName)) {
     throw new Error(
-      `Downloaded ${safeName} but no index.html found. Ensure CI uploads a finished Allure HTML report.`,
+      `Downloaded ${safeName} but no index.html found. Ensure CI uploads a finished HTML report.`,
     );
   }
 
-  return { reportUrl: reportUrlPath(safeId, safeName) };
+  await pruneCache(settings);
+
+  return { reportUrl: reportUrlPath(safeId, safeName), kind };
+}
+
+export async function rerunWorkflow(
+  settings: HubSettings,
+  runId: string,
+): Promise<void> {
+  const repo = requireRepo(settings);
+  const safeId = assertSafeRunId(runId);
+  await runGhOk(["run", "rerun", safeId, "--repo", repo], ghEnv(settings));
+}
+
+export async function cancelWorkflow(
+  settings: HubSettings,
+  runId: string,
+): Promise<void> {
+  const repo = requireRepo(settings);
+  const safeId = assertSafeRunId(runId);
+  await runGhOk(["run", "cancel", safeId, "--repo", repo], ghEnv(settings));
 }
 
 export async function getWorkflowDispatchSchema(
   settings: HubSettings,
 ): Promise<WorkflowDispatchSchema> {
   const repo = requireRepo(settings);
-  const yamlText = await runGhOk([
-    "workflow",
-    "view",
-    settings.workflowFile,
-    "--repo",
-    repo,
-    "--yaml",
-  ]);
+  const yamlText = await runGhOk(
+    ["workflow", "view", settings.workflowFile, "--repo", repo, "--yaml"],
+    ghEnv(settings),
+  );
 
   const doc = parseYaml(yamlText) as {
     name?: string;
@@ -571,5 +621,5 @@ export async function dispatchWorkflow(
     args.push("-f", `${key}=${value}`);
   }
 
-  await runGhOk(args);
+  await runGhOk(args, ghEnv(settings));
 }

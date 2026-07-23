@@ -150,6 +150,54 @@ export function RunDetailPage() {
     }
   }
 
+  async function onRerun() {
+    if (!id) return;
+    setBusy("rerun");
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await api.rerun(id);
+      setMessage(result.message);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onCancel() {
+    if (!id || !run) return;
+    if (!window.confirm(`Cancel run #${id}?`)) return;
+    setBusy("cancel");
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await api.cancel(id);
+      setMessage(result.message);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onPin(name: string, pinned: boolean) {
+    if (!id) return;
+    setBusy(`pin-${name}`);
+    setError(null);
+    try {
+      if (pinned) await api.pinCache(id, name);
+      else await api.unpinCache(id, name);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!id) {
     return <div className="error-box">Missing run id</div>;
   }
@@ -186,6 +234,23 @@ export function RunDetailPage() {
               </p>
             </div>
             <div className="row">
+              <button
+                className="btn"
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => void onRerun()}
+              >
+                {busy === "rerun" ? "Re-running…" : "Re-run"}
+              </button>
+              <button
+                className="btn"
+                type="button"
+                disabled={Boolean(busy) || !watching}
+                onClick={() => void onCancel()}
+                title={watching ? "Cancel this run" : "Run is not active"}
+              >
+                {busy === "cancel" ? "Cancelling…" : "Cancel"}
+              </button>
               <button className="btn" type="button" onClick={() => void load()}>
                 Refresh
               </button>
@@ -287,12 +352,23 @@ export function RunDetailPage() {
                   <div>
                     <strong>{a.name}</strong>
                     <div className="muted">
-                      {a.expired ? "Expired on GitHub" : "Available"}
+                      {a.kind} · {a.expired ? "Expired on GitHub" : "Available"}
                       {a.sizeInBytes != null ? ` · ${formatBytes(a.sizeInBytes)}` : ""}
                       {a.cached ? " · cached locally" : ""}
+                      {a.pinned ? " · pinned" : ""}
                     </div>
                   </div>
                   <div className="row">
+                    {a.cached && (
+                      <button
+                        className="btn btn-ghost"
+                        type="button"
+                        disabled={Boolean(busy)}
+                        onClick={() => void onPin(a.name, !a.pinned)}
+                      >
+                        {a.pinned ? "Unpin" : "Pin"}
+                      </button>
+                    )}
                     <button
                       className="btn btn-ghost"
                       type="button"

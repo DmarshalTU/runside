@@ -13,6 +13,7 @@ import {
 } from "@testops-hub/shared";
 import { GhError } from "./gh.js";
 import {
+  cancelWorkflow,
   detectRepoFromGh,
   dispatchWorkflow,
   downloadArtifact,
@@ -24,15 +25,18 @@ import {
   listArtifacts,
   listJobs,
   listRuns,
+  rerunWorkflow,
 } from "./github.js";
 import {
   cacheDir,
   clearReportCache,
   ensureHubDirs,
   isArtifactCached,
+  listCachedReports,
   loadSettings,
   reportUrlPath,
   saveSettings,
+  setPinned,
   assertSafeRunId,
   assertSafeArtifactName,
 } from "./paths.js";
@@ -89,14 +93,16 @@ function errorMessage(err: unknown): {
 app.get("/api/health", (c) => c.json({ ok: true, name: "runside" }));
 
 app.get("/api/gh/status", async (c) => {
-  const status = await getGhStatus();
+  const settings = await loadSettings();
+  const status = await getGhStatus(settings);
   return c.json(status);
 });
 
 app.get("/api/gh/repos", async (c) => {
   try {
+    const settings = await loadSettings();
     const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 50) || 50));
-    const repos = await listAccessibleRepos(limit);
+    const repos = await listAccessibleRepos(settings, limit);
     return c.json({ repos });
   } catch (err) {
     const { status, body } = errorMessage(err);
@@ -180,6 +186,67 @@ app.get("/api/runs/:id/logs", async (c) => {
   }
 });
 
+app.post("/api/runs/:id/rerun", async (c) => {
+  try {
+    const settings = await loadSettings();
+    const id = assertSafeRunId(c.req.param("id"));
+    await rerunWorkflow(settings, id);
+    return c.json({ ok: true as const, message: `Re-run requested for #${id}.` });
+  } catch (err) {
+    const { status, body } = errorMessage(err);
+    return c.json(body, status);
+  }
+});
+
+app.post("/api/runs/:id/cancel", async (c) => {
+  try {
+    const settings = await loadSettings();
+    const id = assertSafeRunId(c.req.param("id"));
+    await cancelWorkflow(settings, id);
+    return c.json({ ok: true as const, message: `Cancel requested for #${id}.` });
+  } catch (err) {
+    const { status, body } = errorMessage(err);
+    return c.json(body, status);
+  }
+});
+
+app.get("/api/cache/reports", async (c) => {
+  try {
+    const settings = await loadSettings();
+    const reports = await listCachedReports(settings);
+    return c.json({ reports });
+  } catch (err) {
+    const { status, body } = errorMessage(err);
+    return c.json(body, status);
+  }
+});
+
+app.post("/api/cache/:runId/:name/pin", async (c) => {
+  try {
+    const settings = await loadSettings();
+    const id = assertSafeRunId(c.req.param("runId"));
+    const name = assertSafeArtifactName(c.req.param("name"));
+    const next = await setPinned(settings, id, name, true);
+    return c.json(next);
+  } catch (err) {
+    const { status, body } = errorMessage(err);
+    return c.json(body, status);
+  }
+});
+
+app.delete("/api/cache/:runId/:name/pin", async (c) => {
+  try {
+    const settings = await loadSettings();
+    const id = assertSafeRunId(c.req.param("runId"));
+    const name = assertSafeArtifactName(c.req.param("name"));
+    const next = await setPinned(settings, id, name, false);
+    return c.json(next);
+  } catch (err) {
+    const { status, body } = errorMessage(err);
+    return c.json(body, status);
+  }
+});
+
 app.post("/api/settings/detect-repo", async (c) => {
   try {
     const detected = await detectRepoFromGh();
@@ -219,6 +286,7 @@ app.post("/api/runs/:id/artifacts/:name/download", async (c) => {
       name,
       reportUrl: result.reportUrl,
       cached: true,
+      kind: result.kind,
     });
   } catch (err) {
     const { status, body } = errorMessage(err);
